@@ -10,6 +10,14 @@ from noise import Noise_Model, Code_Capacity_Noise_Model, Pure_Erasure_Noise_Mod
 
 POSSIBLE_CNOT_ERRORS = list(itertools.product('IJXYZ', repeat=2))
 
+def print_binary_bitmask(bitmask):
+    # write a function that prints all indices of a bitmask that are set to 1
+    indices = []
+    for i in range(bitmask.bit_length()):
+        if (bitmask >> i) & 1:
+            indices.append(i)
+    print(f"Bitmask {bin(bitmask)} has bits set at indices: {indices}")
+
 def indices_to_mask(indices):
     m = 0
     shift = (1).__lshift__  # localize to avoid global lookup
@@ -308,7 +316,10 @@ class RSC(_Stabilizer_Code):
             elif (x + y) % 4 == 0 and x < (2*self.distance + 1) and y > 1 and y < (2*self.distance - 1):
                 self.add_z_ancilla((x, y), index)
 
+        self.eq_diff = self.x_ancilla_ids[-1]
+
     def _build_checks(self):
+        self.cnot_bitmasks = [0b0, 0b0, 0b0, 0b0]
         x_order = [(-1, 1), (1, 1), (-1, -1), (1, -1)]
         z_order = [(-1, 1), (-1, -1), (1, 1), (1, -1)]
         for check_num in range(4):
@@ -316,11 +327,13 @@ class RSC(_Stabilizer_Code):
                 if qubit := self.data_qubits.get((x_ancilla.coords[0] + x_order[check_num][0], x_ancilla.coords[1] + x_order[check_num][1])):
                     self.gates[check_num].append((x_ancilla.id, qubit.id))
                     self.plaquettes[x_ancilla.id].append(qubit.id)
+                    self.cnot_bitmasks[check_num] |= (((1 << qubit.id) | (1 << x_ancilla.id)) << self.eq_diff)
 
             for z_ancilla in self.z_ancillas.values():
                 if qubit := self.data_qubits.get((z_ancilla.coords[0] + z_order[check_num][0], z_ancilla.coords[1] + z_order[check_num][1])):
                     self.gates[check_num].append((qubit.id, z_ancilla.id))
                     self.plaquettes[z_ancilla.id].append(qubit.id)
+                    self.cnot_bitmasks[check_num] |= (((1 << qubit.id) | (1 << z_ancilla.id)) << self.eq_diff)
 
     def draw_lattice(self, ax=None, numbering=True):
         """
@@ -378,111 +391,19 @@ class RSC(_Stabilizer_Code):
         plt.show()
 
         return axs
-
-    # def to_circuit(self, noise_model: Noise_Model):
-    #     circuit = Circuit()
-
-    #     clean_qubits = noise_model.noises.get('clean-qubits', 0)
-    #     pauli_qubits = noise_model.noises.get('pauli-qubits', 0)
-    #     erasure_qubits = noise_model.noises.get('erasure-qubits', 0)
-
-    #     self.eq_diff = self.x_ancilla_ids[-1]
-
-    #     gate_cache = [] # TODO: make use of gate_cache
-
-    #     # TODO: turn self.gates into bitmasks
-
-    #     # state preparation
-    #     circuit.add_gate(NoiselessStatePrepGate(qubits=self.ancilla_ids)) # apply noiseless state prep to all ancillas 
-    #     sp_support_mask = indices_to_mask(self.data_qubit_ids) # bitmask for state prep support
-    #     sp_clean = clean_qubits & sp_support_mask
-    #     sp_pauli = pauli_qubits & sp_support_mask
-    #     sp_erasure = erasure_qubits & sp_support_mask
-    #     circuit.add_gate(GeneralStatePrepGate(clean_bitmask=sp_clean, 
-    #                                           pauli_bitmask=sp_pauli, 
-    #                                           erasure_bitmask=sp_erasure, 
-    #                                           p_pauli=noise_model.noises.get('sp', 0), 
-    #                                           p_erasure=noise_model.noises.get('sp-e', 0)))
-        
-    #     # hadamards on x-ancillas
-    #     h_support_mask = indices_to_mask(self.x_ancilla_ids)
-    #     h_clean = clean_qubits & h_support_mask
-    #     h_pauli = pauli_qubits & h_support_mask
-    #     h_erasure = erasure_qubits & h_support_mask
-    #     h_gate = GeneralSQGate(gate_type="H",
-    #                                    clean_bitmask=h_clean,
-    #                                    pauli_bitmask=h_pauli,
-    #                                    erasure_bitmask=h_erasure,
-    #                                    p_pauli=noise_model.noises.get('sqg', 0),
-    #                                    p_erasure=noise_model.noises.get('sqg-e', 0))
-    #     circuit.add_gate(h_gate)
-
-    #     # CNOT rounds
-    #     for check_gates in self.gates:
-    #         support = []
-
-    #         control_indices = []
-    #         target_indices = []
-
-    #         for gate in check_gates:
-    #             control_indices.append(gate[0])
-    #             target_indices.append(gate[1])
-    #             support.extend([gate[0], gate[1]])
-
-    #         cnot_support_mask = indices_to_mask(control_indices) | indices_to_mask(target_indices)
-    #         cnot_pauli = pauli_qubits & cnot_support_mask
-    #         cnot_erasure = erasure_qubits & cnot_support_mask
-
-    #         circuit.add_gate(SymmetricPauliErasureCNOT(gates=check_gates, 
-    #                                                    erasure_bitmask=cnot_erasure, 
-    #                                                    p=noise_model.noises.get('tqg-e', 0), 
-    #                                                    eq_diff=self.eq_diff)) # WARNING: assumes all CNOTs have either erasure or pauli noise
-
-    #         # measure fictitious ancillas for erasure detection
-    #         circuit.add_gate(HeraldedAncillaMeasurementGate(qubits=support, 
-    #                                                          eq_diff=self.eq_diff))
-
-    #     # hadamards on x-ancillas again
-    #     circuit.add_gate(h_gate)
-
-    #     # measure ancilla
-    #     meas_support_mask = indices_to_mask(self.x_ancilla_ids + self.z_ancilla_ids)
-    #     meas_clean = clean_qubits & meas_support_mask
-    #     meas_pauli = pauli_qubits & meas_support_mask
-    #     meas_erasure = erasure_qubits & meas_support_mask
-    #     circuit.add_gate(GeneralMeasurementGate(clean_bitmask=meas_clean,
-    #                                              pauli_bitmask=meas_pauli,
-    #                                              erasure_bitmask=meas_erasure,
-    #                                              p_pauli=noise_model.noises.get('meas', 0),
-    #                                              p_erasure=noise_model.noises.get('meas-e', 0)))
-        
-    #     # measure data qubits
-    #     meas_support_mask = indices_to_mask(self.data_qubit_ids)
-    #     meas_clean = clean_qubits & meas_support_mask
-    #     meas_pauli = pauli_qubits & meas_support_mask
-    #     meas_erasure = erasure_qubits & meas_support_mask
-    #     circuit.add_gate(GeneralMeasurementGate(clean_bitmask=meas_clean,
-    #                                              pauli_bitmask=meas_pauli,
-    #                                              erasure_bitmask=meas_erasure,
-    #                                              p_pauli=noise_model.noises.get('meas', 0),
-    #                                              p_erasure=noise_model.noises.get('meas-e', 0)))
-        
-    #     # detectors for z-ancillas
-        
-
-    #     return str(circuit)
         
     # an attempt to create the stim circuit more efficiently
     def build_stim_circuit(self, noise_dict: dict = None):
-        # start_time = time.time()
         circuit = Circuit()
 
+        post_hadamard_errors = 0
+
+        ## Create bitmasks for erasure and pauli errors (e.g. erasure_qubits = 0b10101 means qubits 0, 2, 4 have erasure errors)
         pauli_qubits = noise_dict.get('pauli-qubits', 0)
         erasure_qubits = noise_dict.get('erasure-qubits', 0)
 
-        self.eq_diff = self.x_ancilla_ids[-1]
+        ## State preparation
         circuit.add_reset(self.all_qubit_ids)
-
         sp_pauli, sp_erasure = split_support_list_fast(self.data_qubit_ids, pauli_qubits, erasure_qubits)
 
         if sp_pauli and (p_sp_pauli := noise_dict.get('sp', 0)) > 0:
@@ -490,11 +411,45 @@ class RSC(_Stabilizer_Code):
         if sp_erasure and (p_sp_erasure := noise_dict.get('sp-e', 0)) > 0:
             circuit.add_erasure1(sp_erasure, p_sp_erasure)
 
-        for check_gates in self.gates:
+        ## Hadamards on X-ancillas
+        circuit.add_h_gate(self.x_ancilla_ids, index=True)
+    
+        hadamard_pauli, hadamard_erasure = split_support_list_fast(self.x_ancilla_ids, pauli_qubits, erasure_qubits)
+        if hadamard_pauli and (p_had_pauli := noise_dict.get('sqg', 0)) > 0:
+            circuit.add_depolarize1(hadamard_pauli, p_had_pauli)
+            post_hadamard_errors += 1
+        if hadamard_erasure and (p_had_erasure := noise_dict.get('sqg-e', 0)) > 0:
+            circuit.add_erasure1(hadamard_erasure, p_had_erasure)
+            post_hadamard_errors += 1
+
+        ## CNOT rounds
+        fic_ancillas_bitmask = erasure_qubits << self.eq_diff
+        for i, check_gates in enumerate(self.gates):
             circuit.add_symmetric_pauli_erasure_cnot(check_gates, erasure_qubits, noise_dict.get('tqg-e', 0), self.eq_diff)
+            fic_ancillas_intersect_bitmask = fic_ancillas_bitmask & self.cnot_bitmasks[i]
+            fic_ancillas_intersect = list(mask_iter_indices(fic_ancillas_intersect_bitmask))
+            if (p_meas_pauli := noise_dict.get('meas', 0)) > 0:
+                circuit.add_depolarize1(fic_ancillas_intersect, p_meas_pauli)
+            circuit.add_measurements(fic_ancillas_intersect)
 
-        # print("Built circuit in", time.time() - start_time)
+        ## Hadamards on X-ancillas again
+        circuit.append_to_circ_str(circuit.circ_str[circuit.hadamard_index:circuit.hadamard_index + post_hadamard_errors + 1])  # Reuse the hadamard gate string
 
+        ## Measure all ancillas
+        circuit.add_measurements(self.x_ancilla_ids)
+        circuit.add_measurements(self.z_ancilla_ids)
+        ancilla_meas_pauli, ancilla_meas_erasure = split_support_list_fast(self.ancilla_ids, pauli_qubits, erasure_qubits)
+        if ancilla_meas_pauli and (p_anc_meas_pauli := noise_dict.get('meas', 0)) > 0:
+            circuit.add_depolarize1(ancilla_meas_pauli, p_anc_meas_pauli)
+        if ancilla_meas_erasure and (p_anc_meas_erasure := noise_dict.get('meas', 0)) > 0:
+            circuit.add_erasure1(ancilla_meas_erasure, p_anc_meas_erasure)
+
+        ## Measure all data qubits
+        n_z_ancillas = (self.distance**2 - 1) // 2
+        circuit.add_detectors(range(n_z_ancillas, 0, -1))
+
+        ## Measure plaquettes
+        
         return circuit.to_stim_circuit()
 
     def to_stim_circuit(self, noise_model: Noise_Model = None):
