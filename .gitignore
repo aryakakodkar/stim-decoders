@@ -1,0 +1,9 @@
+# Ignore all files in any folder named 'data'
+**/data/*
+
+# Ignore all Python cache files and folders
+**/__pycache__/
+**/*.pyc
+
+# Ignore all files containing 'test' in their name (case-insensitive)
+**/*[Tt]est*
