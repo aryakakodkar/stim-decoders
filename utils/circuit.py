@@ -1,5 +1,4 @@
 from collections import deque
-import itertools
 from typing import List
 import stim
 import time
@@ -8,21 +7,18 @@ PAULI_GATES = ['I', 'X', 'Y', 'Z', 'J']
 CORRELATED_CNOT_CACHE = {}
 
 def pauli_erasure_cnot_optimized(gates: List[tuple], erasure_bitmask: int, p: float, eq_diff: int = 0):
-    """
-    Optimized pure Python version for building CNOT error strings.
-    
-    Key optimizations:
-    1. Cache error descriptors per gate configuration to avoid recomputation
-    2. Use local references to avoid attribute lookups
-    3. Minimize list allocations and operations
-    4. Use tuple for PAULI_STR (slightly faster than list)
-    5. Build strings efficiently with f-strings and single join
-    
-    Stim's circuit string parser (C++) is ~337x faster than the Python append() API,
-    so we optimize string building and let Stim's parser handle the heavy lifting.
+    """Builds optimized string list for symmetric Pauli + Erasure errors on CNOTs.
+
+    Args:
+        gates: List of (control, target) qubit index tuples for CNOTs.
+        erasure_bitmask: Python int bitmask indicating which qubits have erasure errors.
+        p: Probability of error occurring on each CNOT.
+        eq_diff: Difference between data and fictitious ancilla qubit indices.
+
+    Returns:
+        List of strings representing the error operations to be appended to a Circuit()._circ_str.
     """
     err_string = []
-    err_string_append = err_string.append  # Local reference for speed
     PAULI_STR = ('I', 'X', 'Y', 'Z', 'J')
     
     for gate in gates:
@@ -61,29 +57,28 @@ def pauli_erasure_cnot_optimized(gates: List[tuple], erasure_bitmask: int, p: fl
             q1, q2, e0, e1, err_prob = cache_entries[i]
             
             # Build string parts efficiently
-            parts = []
-            parts_append = parts.append  # Local reference
+            parts = ""
             
             # Error prefix
             if i == 0:
-                parts_append(f"CORRELATED_ERROR({err_prob})")
+                parts += f"CORRELATED_ERROR({err_prob}) "
             else:
-                parts_append(f"ELSE_CORRELATED_ERROR({err_prob})")
-            
+                parts += f"ELSE_CORRELATED_ERROR({err_prob}) "
+
             # Pauli errors (skip identity and erasure marker)
             if 0 < q1 < 4:
-                parts_append(f"{PAULI_STR[q1]}{g0}")
+                parts += f"{PAULI_STR[q1]}{g0} "
             if 0 < q2 < 4:
-                parts_append(f"{PAULI_STR[q2]}{g1}")
+                parts += f"{PAULI_STR[q2]}{g1} "
             
             # Erasure markers
             if e0:
-                parts_append(f"X{g0 + eq_diff}")
+                parts += f"X{g0 + eq_diff} "
             if e1:
-                parts_append(f"X{g1 + eq_diff}")
-            
+                parts += f"X{g1 + eq_diff} "
+
             # Single join and append
-            err_string_append(' '.join(parts))
+            err_string.append(parts)
 
     return err_string
 

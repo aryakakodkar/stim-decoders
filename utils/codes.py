@@ -125,8 +125,6 @@ class RSC(_Stabilizer_Code):
         self._build_lattice()
         self._build_checks()
 
-        print(self.measurement_indices)
-
         self.eq_diff = max(self.qubit_ids.keys())
 
     def _build_lattice(self):
