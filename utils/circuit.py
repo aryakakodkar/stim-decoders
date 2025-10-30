@@ -84,7 +84,7 @@ def pauli_erasure_cnot_optimized(gates: List[tuple], erasure_bitmask: int, p: fl
             
             # Single join and append
             err_string_append(' '.join(parts))
-    
+
     return err_string
 
 def mask_iter_indices(mask: int):
@@ -126,6 +126,9 @@ class Circuit:
     def add_depolarize1(self, qubits: List[int], p: float):
         self._circ_str.append(f"DEPOLARIZE1({p}) " + " ".join(str(q) for q in qubits))
 
+    def add_depolarize2(self, pairs: List[tuple], p: float):
+        self._circ_str.append(f"DEPOLARIZE2({p}) " + " ".join(f"{pair[0]} {pair[1]}" for pair in pairs))
+
     def add_erasure1(self, qubits: List[int], p: float):
         self._circ_str.append(f"HERALDED_ERASE({p}) " + " ".join(str(q) for q in qubits))
         self._measurements += len(qubits)
@@ -135,6 +138,9 @@ class Circuit:
         if p > 0.0:
             self._circ_str.extend(pauli_erasure_cnot_optimized(gates, erasure_bitmask, p, eq_diff))
 
+    def add_pauli_cnot(self, gates: List[tuple]):
+        self._circ_str.append("CX " + " ".join(f"{gate[0]} {gate[1]}" for gate in gates))
+            
     def add_measurements(self, qubits: List[int]): # inefficient
         self._circ_str.append("M " + " ".join(str(q) for q in qubits))
         self._measurements += len(qubits)
@@ -148,7 +154,10 @@ class Circuit:
             self._circ_str.append("\n".join([f"DETECTOR rec[-{coord}]" for coord in coords]))
         if parity:
             for coord in coords:
-                self._circ_str.append(f"DETECTOR " + "".join(f"rec[-{i}]" for i in coord))
+                self._circ_str.append(f"DETECTOR " + " ".join(f"rec[-{i}]" for i in coord))
+
+    def detect_all_measurements(self):
+        self.add_detectors(range(self._measurements + 1, 0, -1))
 
     def to_stim_circuit(self):
         return stim.Circuit("\n".join(self._circ_str))

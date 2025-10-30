@@ -1,3 +1,4 @@
+
 # Ignore all files in any folder named 'data'
 **/data/*
 
@@ -5,5 +6,10 @@
 **/__pycache__/
 **/*.pyc
 
-# Ignore all files containing 'test' in their name (case-insensitive)
+# Track the tests folder itself
+!tests/
+
+# Ignore files with 'test', 'testing', or 'temp' in their name (case-insensitive)
 **/*[Tt]est*
+**/*[Tt]esting*
+**/*[Tt]emp*
