@@ -1,41 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import stim
-import itertools
 import time
 
 # TODO: work out how to do this more cleanly
 from circuit import *
-from noise import Noise_Model, Code_Capacity_Noise_Model, Pure_Erasure_Noise_Model
+from bitops import *
 
-POSSIBLE_CNOT_ERRORS = list(itertools.product('IJXYZ', repeat=2))
-
-def indices_to_mask(indices):
-    m = 0
-    shift = (1).__lshift__  # localize to avoid global lookup
-    or_ = int.__or__        # same trick
-    for i in indices:
-        m = or_(m, shift(i))
-    return m
-
-def split_support_list_fast(support_indices, pauli_mask, erasure_mask):
-    """
-    Optimized version with localized bit operations.
-    """
-    pauli_indices = []
-    erasure_indices = []
-    
-    pm = pauli_mask
-    em = erasure_mask
-    
-    for idx in support_indices:
-        if (pm >> idx) & 1:
-            pauli_indices.append(idx)
-        if (em >> idx) & 1:
-            erasure_indices.append(idx)
-    
-    return pauli_indices, erasure_indices
-
+# TODO: Docstring
 class _Qubit:
     """
     Utility class representing a qubit
@@ -65,7 +37,7 @@ class _Qubit:
     def id(self):
         return self._id
 
-## Generic stabilizer code class
+# TODO: Docstring
 class _Stabilizer_Code():
     def __init__(self, distance: int, check_density: int):
         self.distance = distance
@@ -125,9 +97,8 @@ class RSC(_Stabilizer_Code):
         self._build_lattice()
         self._build_checks()
 
-        self.eq_diff = max(self.qubit_ids.keys())
-
     def _build_lattice(self):
+        """Builds the rotated surface code lattice."""
         x_index = 0
         z_index = self.num_ancillas // 2
         data_index = self.num_ancillas
@@ -158,6 +129,7 @@ class RSC(_Stabilizer_Code):
         self.eq_diff = self.x_ancilla_ids[-1]
 
     def _build_checks(self):
+        """Builds the CNOT gates for each check of the RSC code."""
         self.cnot_bitmasks = [0b0, 0b0, 0b0, 0b0]
         x_order = [(-1, 1), (1, 1), (-1, -1), (1, -1)]
         z_order = [(-1, 1), (-1, -1), (1, 1), (1, -1)]
@@ -165,7 +137,7 @@ class RSC(_Stabilizer_Code):
             for x_ancilla in self.x_ancillas.values():
                 if qubit := self.data_qubits.get((x_ancilla.coords[0] + x_order[check_num][0], x_ancilla.coords[1] + x_order[check_num][1])):
                     self.gates[check_num].append((x_ancilla.id, qubit.id))
-                    # self.plaquettes[x_ancilla.id].append(qubit.id)
+                    # self.plaquettes[x_ancilla.id].append(qubit.id) # unnecessary for code initialization in Z eigenstate
                     self.cnot_bitmasks[check_num] |= (((1 << qubit.id) | (1 << x_ancilla.id)) << self.eq_diff)
 
             for z_ancilla in self.z_ancillas.values():
@@ -174,7 +146,16 @@ class RSC(_Stabilizer_Code):
                     self.plaquettes[z_ancilla.id].append(qubit.id)
                     self.cnot_bitmasks[check_num] |= (((1 << qubit.id) | (1 << z_ancilla.id)) << self.eq_diff)
 
-    def _supports(self, pauli_bitmask, erasure_bitmask):
+    def _supports(self, pauli_bitmask):
+        """Determines support lists for various operations based on error bitmasks.
+        
+        Args:
+            pauli_bitmask: Integer bitmask for Pauli errors. (WARNING: assumes that all non-Pauli qubits are Erasures)
+        
+        Returns:
+            Tuple[List[int], List[int], List[int], List[int], List[int], List[int]]: Support lists for the following error operations: sp_pauli
+                sp_erasure, hadamard_pauli, hadamard_erasure, ancilla_meas_pauli, ancilla_meas_erasure
+        """
         sp_pauli = []
         sp_erasure = []
         hadamard_pauli = []
@@ -257,8 +238,15 @@ class RSC(_Stabilizer_Code):
 
         return axs
         
-    # an attempt to create the stim circuit more efficiently
     def build_stim_circuit(self, noise_dict: dict = None):
+        """Builds the Stim circuit for the RSC code with specified noise.
+
+        Args:
+            noise_dict (dict): Dictionary specifying noise parameters. For possible keys, see documentation API.
+
+        Returns:
+            The constructed stim circuit.
+        """
         circuit = Circuit()
 
         post_hadamard_errors = 0 # measure number of different error processes after Hadamards for reusing gate strings
@@ -299,7 +287,7 @@ class RSC(_Stabilizer_Code):
                     circuit.add_depolarize1(fic_ancillas_intersect, p_meas_pauli)
                 circuit.add_measurements(fic_ancillas_intersect)
             else:
-                circuit.add_pauli_cnot(check_gates)
+                circuit.add_cnot(check_gates)
                 circuit.add_depolarize2(check_gates, noise_dict.get('tqg', 0)) # this process is inefficient (loops over check_gates twice)
 
         ## Hadamards on X-ancillas again
