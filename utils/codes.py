@@ -94,6 +94,8 @@ class RSC(_Stabilizer_Code):
         self.hadamard_support = 0b0
         self.ancilla_measure_support = 0b0
 
+        self.cached_strings = []
+
         self._build_lattice()
         self._build_checks()
 
@@ -238,14 +240,14 @@ class RSC(_Stabilizer_Code):
 
         return axs
         
-    def build_stim_circuit(self, noise_dict: dict = None):
+    def build_circuit(self, noise_dict: dict = None):
         """Builds the Stim circuit for the RSC code with specified noise.
 
         Args:
             noise_dict (dict): Dictionary specifying noise parameters. For possible keys, see documentation API.
 
         Returns:
-            The constructed stim circuit.
+            The associated Circuit object
         """
         circuit = Circuit()
 
@@ -255,7 +257,7 @@ class RSC(_Stabilizer_Code):
         pauli_qubits = noise_dict.get('pauli-qubits', 0)
         erasure_qubits = noise_dict.get('erasure-qubits', 0)
 
-        sp_pauli, sp_erasure, hadamard_pauli, hadamard_erasure, ancilla_meas_pauli, ancilla_meas_erasure = self._supports(pauli_qubits, erasure_qubits)
+        sp_pauli, sp_erasure, hadamard_pauli, hadamard_erasure, ancilla_meas_pauli, ancilla_meas_erasure = self._supports(pauli_qubits)
 
         ## State preparation
         circuit.add_reset(self.all_qubit_ids)
@@ -285,7 +287,7 @@ class RSC(_Stabilizer_Code):
                 fic_ancillas_intersect = list(mask_iter_indices(fic_ancillas_intersect_bitmask))
                 if (p_meas_pauli := noise_dict.get('meas', 0)) > 0:
                     circuit.add_depolarize1(fic_ancillas_intersect, p_meas_pauli)
-                circuit.add_measurements(fic_ancillas_intersect)
+                circuit.add_measurements(fic_ancillas_intersect, reset=True)
             else:
                 circuit.add_cnot(check_gates)
                 circuit.add_depolarize2(check_gates, noise_dict.get('tqg', 0)) # this process is inefficient (loops over check_gates twice)
@@ -297,8 +299,7 @@ class RSC(_Stabilizer_Code):
         circuit.detect_all_measurements()
 
         ## Measure all ancillas
-        circuit.add_measurements(self.x_ancilla_ids)
-        circuit.add_measurements(self.z_ancilla_ids)
+        circuit.add_measurements(self.x_ancilla_ids + self.z_ancilla_ids)
         # ancilla_meas_pauli, ancilla_meas_erasure = split_support_list_fast(self.ancilla_ids, pauli_qubits, erasure_qubits)
         if ancilla_meas_pauli and (p_anc_meas_pauli := noise_dict.get('meas', 0)) > 0:
             circuit.add_depolarize1(ancilla_meas_pauli, p_anc_meas_pauli)
@@ -307,19 +308,108 @@ class RSC(_Stabilizer_Code):
 
         ## Z-ancilla detectors
         circuit.add_detectors(range(self.num_ancillas // 2, 0, -1))
+        self.cached_strings.append(circuit.circ_str[-1])
 
         ## Measure all data qubits
         circuit.add_measurements(self.data_qubit_ids)
+        self.cached_strings.append(circuit.circ_str[-1])
         # TODO: add measurement noise
 
         ## Measure plaquettes
         circuit.add_detectors([[self.num_qubits - self.measurement_indices[anc_id] for anc_id in self.plaquettes[z_anc_id] + [z_anc_id]] for z_anc_id in self.z_ancilla_ids], parity=True)
+        self.cached_strings.extend(circuit.circ_str[-self.num_ancillas//2:])
         
         ## Observable
-        # TODO: Observable
+        circuit.add_observable([self.num_qubits - self.measurement_indices[qubit_id] for qubit_id in self.observable])
+        self.cached_strings.append(circuit.circ_str[-1])
 
-        return circuit.to_stim_circuit()
+        return circuit
+
+    def build_stim_circuit(self, noise_dict: dict = None):
+        """Builds the Stim circuit for the RSC code with specified noise.
+
+        Args:
+            noise_dict (dict): Dictionary specifying noise parameters. For possible keys, see documentation API.
+
+        Returns:
+            The constructed stim circuit.
+        """
+
+        return self.build_circuit(noise_dict).to_stim_circuit()
+
+    def erasure_syndrome_to_stabilizer_circuit(self, erasure_circuit: Circuit, syndrome: list, noise_dict: dict = None):
+        """Converts an erasure syndrome into a stabilizer circuit.
+
+        Args:
+            circuit: The erasure circuit
+            syndrome: The complete syndrome of the erasure circuit.
+        
+        Returns:
+            The stabilizer circuit corresponding to the erasure syndrome.
+        """
+        circuit = Circuit()
+
+        erasure_qubits = noise_dict.get('erasure-qubits', 0)
+
+        curr_meas_set_index = 0
+        curr_meas_index = 0
+        meas_sets, meas_sets_norm = erasure_circuit.get_measurement_sets()
+
+        circuit.add_reset(self.all_qubit_ids)
+        
+        if self.sp_support & erasure_qubits > 0 and noise_dict.get('sp-e', 0) > 0:
+            if (sp_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(sp_erasure):
+                circuit.add_depolarize1(sp_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
+
+        circuit.add_h_gate(self.x_ancilla_ids)
+        if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
+            if (hadamard_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure):
+                circuit.add_depolarize1(hadamard_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
+
+        for check_num, gate_check in enumerate(self.gates):
+            circuit.add_cnot(gate_check)
+            if (self.cnot_bitmasks[check_num] >> self.eq_diff) & erasure_qubits > 0 and noise_dict.get('tqg-e', 0) > 0:
+                if (tqg_erasure := [meas_sets[curr_meas_set_index][i] - self.eq_diff for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(tqg_erasure):
+                    circuit.add_depolarize1(tqg_erasure, p=0.75)
+                curr_meas_index += meas_sets_norm[curr_meas_set_index]
+                curr_meas_set_index += 1
+
+        circuit.add_h_gate(self.x_ancilla_ids)
+        if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
+            if (hadamard_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure):
+                circuit.add_depolarize1(hadamard_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
+
+        ## Measure all ancillas
+        circuit.add_measurements(self.x_ancilla_ids + self.z_ancilla_ids)
+        if self.ancilla_measure_support & erasure_qubits > 0 and noise_dict.get('meas-e', 0) > 0:
+            if (ancilla_meas_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(ancilla_meas_erasure):
+                circuit.add_depolarize1(ancilla_meas_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
+
+        circuit.append_to_circ_str(self.cached_strings)
+
+        return circuit
     
+    def erasure_syndrome_to_stim_circuit(self, erasure_circuit: Circuit, syndrome: list, noise_dict: dict = None):
+        """Converts an erasure syndrome into a stabilizer stim circuit.
+
+        Args:
+            circuit: The erasure circuit
+            syndrome: The complete syndrome of the erasure circuit.
+        
+        Returns:
+            The stabilizer stim circuit corresponding to the erasure syndrome.
+        """
+        circuit = self.erasure_syndrome_to_stabilizer_circuit(erasure_circuit, syndrome, noise_dict=noise_dict)
+        return circuit.to_stim_circuit()
+
     def to_stim_circuit_with_erasures(self, erasures: list):
         circuit_string = ""
         det_index = 0

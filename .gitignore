@@ -6,10 +6,17 @@
 **/__pycache__/
 **/*.pyc
 
-# Track the tests folder itself
-!tests/
-
 # Ignore files with 'test', 'testing', or 'temp' in their name (case-insensitive)
+# BUT allow all files in the tests/ folder first
+!tests/
+!tests/**
+
+# Then re-ignore files in tests/ that contain 'test', 'testing', or 'temp'
+tests/*[Tt]est*
+tests/*[Tt]esting*
+tests/*[Tt]emp*
+
+# Ignore these patterns everywhere else
 **/*[Tt]est*
 **/*[Tt]esting*
 **/*[Tt]emp*

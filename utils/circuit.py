@@ -88,6 +88,12 @@ class Circuit:
 
         self._hadamard_index = None
 
+        self._observable_index = 0
+
+        self._measurement_sets = []
+        self._measurement_sets_norm = []
+        self._current_measurement_set = []
+    
     @property
     def hadamard_index(self):
         return self._hadamard_index
@@ -149,8 +155,18 @@ class Circuit:
             qubits: List of qubit indices to apply erasure errors.
             p: Probability of erasure error.
         """
-        self._circ_str.append(f"HERALDED_ERASE({p}) " + " ".join(str(q) for q in qubits))
-        self._measurements += len(qubits)
+        measure_string = f"HERALDED_ERASE({p}) "
+        num_qubits_measured = 0
+        for q in qubits:
+            measure_string += f"{q} "
+            self._current_measurement_set.append(q)
+            num_qubits_measured += 1
+
+        self._circ_str.append(measure_string)
+        self._measurements += num_qubits_measured
+        self._measurement_sets.append(self._current_measurement_set)
+        self._measurement_sets_norm.append(num_qubits_measured)
+        self._current_measurement_set = []
 
     def add_symmetric_pauli_erasure_cnot(self, gates: List[tuple], erasure_bitmask: int, p: float, eq_diff: int=0):
         """Adds CNOT operations with symmetric Pauli + Erasure errors.
@@ -173,14 +189,24 @@ class Circuit:
         """
         self._circ_str.append("CX " + " ".join(f"{gate[0]} {gate[1]}" for gate in gates))
             
-    def add_measurements(self, qubits: List[int]): # inefficient
+    def add_measurements(self, qubits: List[int], reset: bool = False): # inefficient
         """Adds measurement operations for specified qubits.
 
         Args:
             qubits: List of qubit indices to measure.
         """
-        self._circ_str.append("M " + " ".join(str(q) for q in qubits))
-        self._measurements += len(qubits)
+        measure_string = f"M{"R" if reset else ""} "
+        num_qubits_measured = 0
+        for q in qubits:
+            measure_string += f"{q} "
+            self._current_measurement_set.append(q)
+            num_qubits_measured += 1
+
+        self._circ_str.append(measure_string)
+        self._measurements += num_qubits_measured
+        self._measurement_sets.append(self._current_measurement_set)
+        self._measurement_sets_norm.append(num_qubits_measured)
+        self._current_measurement_set = []
 
     def add_h_gate(self, qubits: List[int], index: bool = False):
         """Adds Hadamard gates for specified qubits.
@@ -206,7 +232,24 @@ class Circuit:
 
     def detect_all_measurements(self):
         """Adds detectors for all measurements in the circuit, first-in first-out."""
-        self.add_detectors(range(self._measurements + 1, 0, -1))
+        self.add_detectors(range(self._measurements, 0, -1))
+
+    def add_observable(self, coords):
+        """Adds an observable to the circuit.
+
+        Args:
+            coords: List of coordinates for the observable.
+        """
+        self._circ_str.append(f"OBSERVABLE_INCLUDE({self._observable_index}) " + " ".join(f"rec[-{coord}]" for coord in coords))
+        self._observable_index += 1
+
+    def get_measurement_sets(self):
+        """Returns the measurement sets and their normalization factors.
+
+        Returns:
+            Tuple of (measurement_sets, measurement_sets_norm).
+        """
+        return self._measurement_sets, self._measurement_sets_norm
 
     def to_stim_circuit(self):
         """Converts the internal string representation to a stim.Circuit object."""
