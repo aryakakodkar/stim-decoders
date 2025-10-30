@@ -183,62 +183,293 @@ class RSC(_Stabilizer_Code):
 
         return sp_pauli, sp_erasure, hadamard_pauli, hadamard_erasure, ancilla_meas_pauli, ancilla_meas_erasure
 
-    def draw_lattice(self, ax=None, numbering=True):
+    def draw_lattice(self, numbering=True):
         """
-        Draws the lattice of the RSC code.
+        Draws the lattice of the RSC code as an SVG with grid.
 
         Args:
-            ax: Matplotlib axis to draw on. If None, a new figure and axis are created.
             numbering (bool): Whether to number the qubits with their IDs.
 
         Returns:
-            Matplotlib axis: The axis with the drawn lattice.
+            IPython.display.SVG or str: SVG display object in Jupyter, or SVG string otherwise.
         """
-        if ax is None:
-            fig, ax = plt.subplots()
-        ax.invert_yaxis()
-
-        for coord in self.data_qubits.keys():
-            ax.scatter(coord[0], coord[1], c='blue', s=200)
-            if numbering: ax.text(coord[0], coord[1], f"{self.data_qubits[coord].id}", fontsize=10, color='white', ha='center', va='center')
-
-        for coord in self.x_ancillas.keys():
-            ax.scatter(coord[0], coord[1], c='green', s=200)
-            if numbering: ax.text(coord[0], coord[1], f"{self.x_ancillas[coord].id}", fontsize=10, color='white', ha='center', va='center')
-
-        for coord in self.z_ancillas.keys():
-            ax.scatter(coord[0], coord[1], c='red', s=200)
-            if numbering: ax.text(coord[0], coord[1], f"{self.z_ancillas[coord].id}", fontsize=10, color='white', ha='center', va='center')
-
-        if ax is None:
-            plt.show()
-
-        return ax
+        # Find bounds
+        all_coords = list(self.data_qubits.keys()) + list(self.x_ancillas.keys()) + list(self.z_ancillas.keys())
+        if not all_coords:
+            svg_string = '<svg width="100" height="100"></svg>'
+        else:
+            # Find max ID length to size circles appropriately
+            all_ids = [q.id for q in self.data_qubits.values()] + \
+                      [q.id for q in self.x_ancillas.values()] + \
+                      [q.id for q in self.z_ancillas.values()]
+            max_id_digits = len(str(max(all_ids))) if all_ids else 1
+            
+            # Adaptive radius based on number of digits
+            if max_id_digits == 1:
+                radius = 10
+                font_size = 10
+            elif max_id_digits == 2:
+                radius = 12
+                font_size = 9
+            else:  # 3+ digits
+                radius = 13
+                font_size = 8
+            
+            min_x = min(c[0] for c in all_coords)
+            max_x = max(c[0] for c in all_coords)
+            min_y = min(c[1] for c in all_coords)
+            max_y = max(c[1] for c in all_coords)
+            
+            # Scale and padding
+            scale = 30  # pixels per unit
+            padding = 40
+            
+            width = int((max_x - min_x) * scale + 2 * padding)
+            height = int((max_y - min_y) * scale + 2 * padding)
+            
+            def transform_x(x):
+                return (x - min_x) * scale + padding
+            
+            def transform_y(y):
+                return (y - min_y) * scale + padding
+            
+            svg_parts = [f'<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">']
+            
+            # Draw grid (light gray lines) - only through data qubits
+            # Get unique x and y coordinates of data qubits
+            data_x_coords = sorted(set(coord[0] for coord in self.data_qubits.keys()))
+            data_y_coords = sorted(set(coord[1] for coord in self.data_qubits.keys()))
+            
+            # Vertical lines through data qubits
+            for x in data_x_coords:
+                x_pos = transform_x(x)
+                y_start = transform_y(min(data_y_coords))
+                y_end = transform_y(max(data_y_coords))
+                svg_parts.append(f'<line x1="{x_pos}" y1="{y_start}" x2="{x_pos}" y2="{y_end}" stroke="#e0e0e0" stroke-width="3"/>')
+            
+            # Horizontal lines through data qubits
+            for y in data_y_coords:
+                y_pos = transform_y(y)
+                x_start = transform_x(min(data_x_coords))
+                x_end = transform_x(max(data_x_coords))
+                svg_parts.append(f'<line x1="{x_start}" y1="{y_pos}" x2="{x_end}" y2="{y_pos}" stroke="#e0e0e0" stroke-width="3"/>')
+            
+            # Draw data qubits (black)
+            for coord, qubit in self.data_qubits.items():
+                x, y = transform_x(coord[0]), transform_y(coord[1])
+                svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="black"/>')
+                if numbering:
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            # Draw x-ancillas (soft red)
+            for coord, qubit in self.x_ancillas.items():
+                x, y = transform_x(coord[0]), transform_y(coord[1])
+                svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="#ff6b6b"/>')
+                if numbering:
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            # Draw z-ancillas (soft blue)
+            for coord, qubit in self.z_ancillas.items():
+                x, y = transform_x(coord[0]), transform_y(coord[1])
+                svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="#4dabf7"/>')
+                if numbering:
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            svg_parts.append('</svg>')
+            svg_string = '\n'.join(svg_parts)
+        
+        # Return IPython SVG object if in Jupyter, otherwise return string
+        try:
+            from IPython.display import SVG
+            return SVG(svg_string)
+        except ImportError:
+            return svg_string
 
     def draw_checks(self):
         """
-        Draws the CNOT gates for each check of the RSC code.
+        Draws the CNOT gates for each check of the RSC code as SVG diagrams.
 
         Returns:
-            ax: Matplotlib axis with the drawn checks.
+            IPython.display.SVG or str: SVG display object showing all 4 checks.
         """
-        fig, axs = plt.subplots(2, 2, figsize=(10, 10))
-        for check_num, ax in enumerate(axs.flatten()):
-            ax.set_title(f"Check {check_num + 1}")
-            self.draw_lattice(ax=ax, numbering=False)
+        # Find max ID length for sizing
+        all_ids = [q.id for q in self.data_qubits.values()] + \
+                  [q.id for q in self.x_ancillas.values()] + \
+                  [q.id for q in self.z_ancillas.values()]
+        max_id_digits = len(str(max(all_ids))) if all_ids else 1
+        
+        # Adaptive radius based on number of digits
+        if max_id_digits == 1:
+            radius = 10
+            font_size = 10
+        elif max_id_digits == 2:
+            radius = 12
+            font_size = 9
+        else:  # 3+ digits
+            radius = 15
+            font_size = 8
+        
+        # Get bounds for each check
+        all_coords = list(self.data_qubits.keys()) + list(self.x_ancillas.keys()) + list(self.z_ancillas.keys())
+        min_x = min(c[0] for c in all_coords)
+        max_x = max(c[0] for c in all_coords)
+        min_y = min(c[1] for c in all_coords)
+        max_y = max(c[1] for c in all_coords)
+        
+        scale = 30
+        padding = 50  # Extra padding for labels
+        single_width = int((max_x - min_x) * scale + 2 * padding)
+        single_height = int((max_y - min_y) * scale + 2 * padding)
+        
+        # Total SVG size (2x2 grid) - reduced spacing between diagrams
+        spacing = 10  # Reduced from 20
+        total_width = single_width * 2 + spacing * 3
+        total_height = single_height * 2 + spacing * 3
+        
+        def transform_x(x, offset_x=0):
+            return (x - min_x) * scale + padding + offset_x
+        
+        def transform_y(y, offset_y=0):
+            return (y - min_y) * scale + padding + offset_y
+        
+        svg_parts = [f'<svg width="{total_width}" height="{total_height}" xmlns="http://www.w3.org/2000/svg">']
+        
+        # Draw 4 checks in 2x2 grid
+        for check_num in range(4):
+            row = check_num // 2
+            col = check_num % 2
+            offset_x = col * (single_width + spacing) + spacing
+            offset_y = row * (single_height + spacing) + spacing
+            
+            # Title
+            svg_parts.append(f'<text x="{offset_x + single_width//2}" y="{offset_y + 20}" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">Check {check_num + 1}</text>')
+
+            # Draw grid through data qubits
+            data_x_coords = sorted(set(coord[0] for coord in self.data_qubits.keys()))
+            data_y_coords = sorted(set(coord[1] for coord in self.data_qubits.keys()))
+            
+            for x in data_x_coords:
+                x_pos = transform_x(x, offset_x)
+                y_start = transform_y(min(data_y_coords), offset_y)
+                y_end = transform_y(max(data_y_coords), offset_y)
+                svg_parts.append(f'<line x1="{x_pos}" y1="{y_start}" x2="{x_pos}" y2="{y_end}" stroke="#e0e0e0" stroke-width="3"/>')
+            
+            for y in data_y_coords:
+                y_pos = transform_y(y, offset_y)
+                x_start = transform_x(min(data_x_coords), offset_x)
+                x_end = transform_x(max(data_x_coords), offset_x)
+                svg_parts.append(f'<line x1="{x_start}" y1="{y_pos}" x2="{x_end}" y2="{y_pos}" stroke="#e0e0e0" stroke-width="3"/>')
+            
+            # Collect qubits involved in CNOTs for this check
+            cnot_qubits = set()
+            for gate in self.gates[check_num]:
+                cnot_qubits.add(gate[0])
+                cnot_qubits.add(gate[1])
+            
+            # Draw all qubits (those NOT in CNOTs)
+            for coord, qubit in self.data_qubits.items():
+                if qubit.id not in cnot_qubits:
+                    x, y = transform_x(coord[0], offset_x), transform_y(coord[1], offset_y)
+                    svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="black"/>')
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            # for coord, qubit in self.x_ancillas.items():
+            #     if qubit.id not in cnot_qubits:
+            #         x, y = transform_x(coord[0], offset_x), transform_y(coord[1], offset_y)
+            #         svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="#ff6b6b"/>')
+            #         svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            for coord, qubit in self.x_ancillas.items():
+                if qubit.id not in cnot_qubits:
+                    x, y = transform_x(coord[0], offset_x), transform_y(coord[1], offset_y)
+                    svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="#ff6b6b"/>')
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            for coord, qubit in self.z_ancillas.items():
+                if qubit.id not in cnot_qubits:
+                    x, y = transform_x(coord[0], offset_x), transform_y(coord[1], offset_y)
+                    svg_parts.append(f'<circle cx="{x}" cy="{y}" r="{radius}" fill="#4dabf7"/>')
+                    svg_parts.append(f'<text x="{x}" y="{y + font_size//3}" font-size="{font_size}" font-family="monospace" fill="white" text-anchor="middle">{qubit.id}</text>')
+            
+            # Draw CNOT gates
             for gate in self.gates[check_num]:
                 control = self.qubit_with_id(gate[0])
                 target = self.qubit_with_id(gate[1])
-
-                color = 'green' if control.type == 'x-ancilla' else 'red'
-
-                ax.annotate('', xy=target.coords, xycoords='data',
-                            xytext=control.coords, textcoords='data',
-                            arrowprops=dict(arrowstyle="->", color=color))
-
-        plt.show()
-
-        return axs
+                
+                # Color based on ancilla type
+                color = '#ff6b6b' if control.type == 'x-ancilla' else '#4dabf7'
+                
+                cx = transform_x(control.coords[0], offset_x)
+                cy = transform_y(control.coords[1], offset_y)
+                tx = transform_x(target.coords[0], offset_x)
+                ty = transform_y(target.coords[1], offset_y)
+                
+                # Calculate line endpoints to stop at target edge
+                target_radius = 8
+                # Calculate direction vector and normalize
+                dx = tx - cx
+                dy = ty - cy
+                length = (dx**2 + dy**2)**0.5
+                if length > 0:
+                    dx_norm = dx / length
+                    dy_norm = dy / length
+                    # Stop at control edge (5px radius) and target edge (8px radius)
+                    line_start_x = cx + dx_norm * 5
+                    line_start_y = cy + dy_norm * 5
+                    line_end_x = tx - dx_norm * target_radius
+                    line_end_y = ty - dy_norm * target_radius
+                else:
+                    line_start_x, line_start_y = cx, cy
+                    line_end_x, line_end_y = tx, ty
+                
+                # Draw vertical line connecting control and target (stops at target edge)
+                svg_parts.append(f'<line x1="{line_start_x}" y1="{line_start_y}" x2="{line_end_x}" y2="{line_end_y}" stroke="{color}" stroke-width="2"/>')
+                
+                # Draw control (filled circle)
+                svg_parts.append(f'<circle cx="{cx}" cy="{cy}" r="5" fill="{color}"/>')
+                
+                # Draw target (circle with plus sign)
+                svg_parts.append(f'<circle cx="{tx}" cy="{ty}" r="{target_radius}" fill="white" stroke="{color}" stroke-width="2"/>')
+                svg_parts.append(f'<line x1="{tx}" y1="{ty - target_radius}" x2="{tx}" y2="{ty + target_radius}" stroke="{color}" stroke-width="2"/>')
+                svg_parts.append(f'<line x1="{tx - target_radius}" y1="{ty}" x2="{tx + target_radius}" y2="{ty}" stroke="{color}" stroke-width="2"/>')
+                
+                # Adaptive label positioning - place closer to gate, offset based on direction
+                # Determine which side to place label (prefer left, but adapt if line is nearly vertical)
+                label_offset = 12  # Closer to the gate
+                
+                # For control qubit
+                if abs(dx) > abs(dy):  # More horizontal
+                    c_label_x = cx - label_offset if dx > 0 else cx + label_offset
+                    c_label_anchor = "end" if dx > 0 else "start"
+                    c_label_y = cy + 4
+                else:  # More vertical
+                    c_label_x = cx - label_offset
+                    c_label_anchor = "end"
+                    c_label_y = cy + 4
+                
+                # For target qubit
+                if abs(dx) > abs(dy):  # More horizontal
+                    t_label_x = tx - label_offset if dx < 0 else tx + label_offset
+                    t_label_anchor = "end" if dx < 0 else "start"
+                    t_label_y = ty + 4
+                else:  # More vertical
+                    t_label_x = tx - label_offset
+                    t_label_anchor = "end"
+                    t_label_y = ty + 4
+                
+                # Draw qubit IDs with adaptive positioning
+                svg_parts.append(f'<text x="{c_label_x}" y="{c_label_y}" font-size="10" font-family="monospace" fill="black" text-anchor="{c_label_anchor}">{gate[0]}</text>')
+                svg_parts.append(f'<text x="{t_label_x}" y="{t_label_y}" font-size="10" font-family="monospace" fill="black" text-anchor="{t_label_anchor}">{gate[1]}</text>')
+        
+        svg_parts.append('</svg>')
+        svg_string = '\n'.join(svg_parts)
+        
+        # Return IPython SVG object if in Jupyter, otherwise return string
+        try:
+            from IPython.display import SVG
+            return SVG(svg_string)
+        except ImportError:
+            return svg_string
         
     def build_circuit(self, noise_dict: dict = None):
         """Builds the Stim circuit for the RSC code with specified noise.
@@ -410,69 +641,3 @@ class RSC(_Stabilizer_Code):
         circuit = self.erasure_syndrome_to_stabilizer_circuit(erasure_circuit, syndrome, noise_dict=noise_dict)
         return circuit.to_stim_circuit()
 
-    def to_stim_circuit_with_erasures(self, erasures: list):
-        circuit_string = ""
-        det_index = 0
-
-        qubit_ids = [qubit.id for qubit in (list(self.x_ancillas.values()) + list(self.z_ancillas.values()) + list(self.data_qubits.values()))]
-        indices = {qubit_id: idx for idx, qubit_id in enumerate(qubit_ids)}
-        n = len(qubit_ids)
-        n_ancillas = n - len(self.data_qubits)
-
-        # instantiate all qubits
-        for qubit_id in qubit_ids:
-            circuit_string += f"QUBIT_COORDS{self.qubit_ids[qubit_id].coords} {qubit_id}\n"
-
-        # reset all qubits
-        circuit_string += "R " + " ".join([f"{qubit_id}" for qubit_id in qubit_ids]) + "\n"
-
-        # TODO: add state-preparation noise
-        for data_qubit in self.data_qubits.values():
-            p = 0.75*erasures[det_index]
-            circuit_string += self.depolarize1([data_qubit.id], p)
-            det_index += 1
-
-        # Ancilla noise
-        for x_ancilla in self.x_ancillas.values():
-            p = 0.75*erasures[det_index]
-            circuit_string += self.noisy_hadamard([x_ancilla.id], p)
-            det_index += 1
-
-        circuit_string += "TICK\n"
-
-        for round in range(4):
-            # apply cnot gates for this check
-            for gate in self.gates[round]:  
-                circuit_string += self.noiseless_cnot([gate])
-                circuit_string += self.depolarize1([gate[0]], 0.75*erasures[det_index])
-                circuit_string += self.depolarize1([gate[1]], 0.75*erasures[det_index + 1])
-                det_index += 2
-
-            circuit_string += "TICK\n"
-
-        # hadamards again
-        for x_ancilla in self.x_ancillas.values():
-            p = 0.75*erasures[det_index]
-            circuit_string += self.noisy_hadamard([x_ancilla.id], p)
-            det_index += 1
-
-        circuit_string += "TICK\n"
-
-        circuit_string += "M " + " ".join([f"{qubit.id}" for qubit in (list(self.x_ancillas.values()) + list(self.z_ancillas.values()))]) + "\n"
-        
-        plaquette_string = ""
-        for z_ancilla in self.z_ancillas.values():
-            circuit_string += f"DETECTOR rec[-{n_ancillas - indices[z_ancilla.id]}]\n"
-            plaquette_string += f"DETECTOR " + " ".join(f"rec[-{n - indices[data_qubit_id]}]" for data_qubit_id in self.plaquettes[z_ancilla.id]) + f" rec[-{n - indices[z_ancilla.id]}]" + "\n"
-
-        circuit_string += "M " + " ".join([f"{qubit.id}" for qubit in self.data_qubits.values()]) + "\n" + plaquette_string
-
-        circuit_string += "OBSERVABLE_INCLUDE(0) " + " ".join(f"rec[-{n - indices[qubit_id]}]" for qubit_id in self.observable) + "\n"
-
-        return stim.Circuit(circuit_string)
-
-    def to_stim_file_with_erasures(self, erasures: list, filename: str = "rsc_circuit_erased.txt"):
-        circuit = self.to_stim_circuit_with_erasures(erasures, filename=filename)
-        with open(filename, "w") as f:
-            f.write(str(circuit))
-        return str(circuit)
