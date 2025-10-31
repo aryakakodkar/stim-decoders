@@ -2,7 +2,7 @@ from typing import List
 import stim
 import time
 
-from bitops import *
+from ..utils import bitops
 
 CORRELATED_CNOT_CACHE = {}
 

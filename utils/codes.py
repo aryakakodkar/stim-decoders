@@ -3,9 +3,7 @@ import matplotlib.pyplot as plt
 import stim
 import time
 
-# TODO: work out how to do this more cleanly
-from circuit import *
-from bitops import *
+from stimdecoders.utils import circuits, bitops
 
 # TODO: Docstring
 class _Qubit:
@@ -342,7 +340,7 @@ class RSC(_Stabilizer_Code):
             offset_y = row * (single_height + spacing) + spacing
             
             # Title
-            svg_parts.append(f'<text x="{offset_x + single_width//2}" y="{offset_y + 20}" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">Check {check_num + 1}</text>')
+            svg_parts.append(f'<text x="{offset_x + single_width//2}" y="{offset_y + 20}" font-size="14" font-weight="bold" font-family="monospace" text-anchor="middle">CHECK {check_num + 1}</text>')
 
             # Draw grid through data qubits
             data_x_coords = sorted(set(coord[0] for coord in self.data_qubits.keys()))
@@ -480,7 +478,7 @@ class RSC(_Stabilizer_Code):
         Returns:
             The associated Circuit object
         """
-        circuit = Circuit()
+        circuit = circuits.Circuit()
 
         post_hadamard_errors = 0 # measure number of different error processes after Hadamards for reusing gate strings
 
@@ -515,7 +513,7 @@ class RSC(_Stabilizer_Code):
             if erasure_qubits > 0 and (p_tqg_e := noise_dict.get('tqg-e', 0)) > 0:
                 circuit.add_symmetric_pauli_erasure_cnot(check_gates, erasure_qubits, p_tqg_e, self.eq_diff)
                 fic_ancillas_intersect_bitmask = fic_ancillas_bitmask & self.cnot_bitmasks[i]
-                fic_ancillas_intersect = list(mask_iter_indices(fic_ancillas_intersect_bitmask))
+                fic_ancillas_intersect = list(bitops.mask_iter_indices(fic_ancillas_intersect_bitmask))
                 if (p_meas_pauli := noise_dict.get('meas', 0)) > 0:
                     circuit.add_depolarize1(fic_ancillas_intersect, p_meas_pauli)
                 circuit.add_measurements(fic_ancillas_intersect, reset=True)
@@ -568,7 +566,7 @@ class RSC(_Stabilizer_Code):
 
         return self.build_circuit(noise_dict).to_stim_circuit()
 
-    def erasure_syndrome_to_stabilizer_circuit(self, erasure_circuit: Circuit, syndrome: list, noise_dict: dict = None):
+    def erasure_syndrome_to_stabilizer_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
         """Converts an erasure syndrome into a stabilizer circuit.
 
         Args:
@@ -578,7 +576,7 @@ class RSC(_Stabilizer_Code):
         Returns:
             The stabilizer circuit corresponding to the erasure syndrome.
         """
-        circuit = Circuit()
+        circuit = circuits.Circuit()
 
         erasure_qubits = noise_dict.get('erasure-qubits', 0)
 
@@ -628,7 +626,7 @@ class RSC(_Stabilizer_Code):
 
         return circuit
     
-    def erasure_syndrome_to_stim_circuit(self, erasure_circuit: Circuit, syndrome: list, noise_dict: dict = None):
+    def erasure_syndrome_to_stim_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
         """Converts an erasure syndrome into a stabilizer stim circuit.
 
         Args:
