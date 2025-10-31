@@ -225,7 +225,7 @@ class BatchCircuitBuilder:
         return circuits_list, circuit_cache
 
 
-def build_clifford_circuits_batch(rsc: codes.RSC, 
+def batch_build_clifford_circuits(rsc: codes.RSC, 
                                   erasure_circuit: circuits.Circuit,
                                   syndromes: np.ndarray,
                                   noise_dict: dict,

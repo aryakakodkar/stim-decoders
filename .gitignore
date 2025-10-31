@@ -20,3 +20,8 @@ tests/*[Tt]emp*
 **/*[Tt]est*
 **/*[Tt]esting*
 **/*[Tt]emp*
+
+# Ignore para1, para2, para3 files (any extension)
+**/para1*
+**/para2*
+**/para3*

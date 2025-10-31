@@ -561,76 +561,76 @@ class RSC(_Stabilizer_Code):
 
         return self.build_circuit(noise_dict).to_stim_circuit()
 
-    # def erasure_syndrome_to_stabilizer_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
-    #     """Converts an erasure syndrome into a stabilizer circuit.
+    def erasure_syndrome_to_stabilizer_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
+        """Converts an erasure syndrome into a stabilizer circuit.
 
-    #     Args:
-    #         circuit: The erasure circuit
-    #         syndrome: The complete syndrome of the erasure circuit.
+        Args:
+            circuit: The erasure circuit
+            syndrome: The complete syndrome of the erasure circuit.
         
-    #     Returns:
-    #         The stabilizer circuit corresponding to the erasure syndrome.
-    #     """
-    #     circuit = circuits.Circuit()
+        Returns:
+            The stabilizer circuit corresponding to the erasure syndrome.
+        """
+        circuit = circuits.Circuit()
 
-    #     erasure_qubits = noise_dict.get('erasure-qubits', 0)
+        erasure_qubits = noise_dict.get('erasure-qubits', 0)
 
-    #     curr_meas_set_index = 0
-    #     curr_meas_index = 0
-    #     meas_sets, meas_sets_norm = erasure_circuit.get_measurement_sets()
+        curr_meas_set_index = 0
+        curr_meas_index = 0
+        meas_sets, meas_sets_norm = erasure_circuit.get_measurement_sets()
 
-    #     circuit.add_reset(self.all_qubit_ids)
+        circuit.add_reset(self.all_qubit_ids)
         
-    #     if self.sp_support & erasure_qubits > 0 and noise_dict.get('sp-e', 0) > 0:
-    #         if (sp_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(sp_erasure):
-    #             circuit.add_depolarize1(sp_erasure, p=0.75)
-    #         curr_meas_index += meas_sets_norm[curr_meas_set_index]
-    #         curr_meas_set_index += 1
+        if self.sp_support & erasure_qubits > 0 and noise_dict.get('sp-e', 0) > 0:
+            if (sp_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(sp_erasure):
+                circuit.add_depolarize1(sp_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
 
-    #     circuit.add_h_gate(self.x_ancilla_ids)
-    #     if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
-    #         if (hadamard_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure):
-    #             circuit.add_depolarize1(hadamard_erasure, p=0.75)
-    #         curr_meas_index += meas_sets_norm[curr_meas_set_index]
-    #         curr_meas_set_index += 1
+        circuit.add_h_gate(self.x_ancilla_ids)
+        if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
+            if (hadamard_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure):
+                circuit.add_depolarize1(hadamard_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
 
-    #     for check_num, gate_check in enumerate(self.gates):
-    #         circuit.add_cnot(gate_check)
-    #         if (self.cnot_bitmasks[check_num] >> self.eq_diff) & erasure_qubits > 0 and noise_dict.get('tqg-e', 0) > 0:
-    #             if (tqg_erasure := [meas_sets[curr_meas_set_index][i] - self.eq_diff for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(tqg_erasure):
-    #                 circuit.add_depolarize1(tqg_erasure, p=0.75)
-    #             curr_meas_index += meas_sets_norm[curr_meas_set_index]
-    #             curr_meas_set_index += 1
+        for check_num, gate_check in enumerate(self.gates):
+            circuit.add_cnot(gate_check)
+            if (self.cnot_bitmasks[check_num] >> self.eq_diff) & erasure_qubits > 0 and noise_dict.get('tqg-e', 0) > 0:
+                if (tqg_erasure := [meas_sets[curr_meas_set_index][i] - self.eq_diff for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(tqg_erasure):
+                    circuit.add_depolarize1(tqg_erasure, p=0.75)
+                curr_meas_index += meas_sets_norm[curr_meas_set_index]
+                curr_meas_set_index += 1
 
-    #     circuit.add_h_gate(self.x_ancilla_ids)
-    #     if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
-    #         if (hadamard_erasure_2 := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure_2):
-    #             circuit.add_depolarize1(hadamard_erasure_2, p=0.75)
-    #         curr_meas_index += meas_sets_norm[curr_meas_set_index]
-    #         curr_meas_set_index += 1
+        circuit.add_h_gate(self.x_ancilla_ids)
+        if self.hadamard_support & erasure_qubits > 0 and noise_dict.get('sqg-e', 0) > 0:
+            if (hadamard_erasure_2 := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(hadamard_erasure_2):
+                circuit.add_depolarize1(hadamard_erasure_2, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
 
-    #     ## Measure all ancillas
-    #     circuit.add_measurements(self.x_ancilla_ids + self.z_ancilla_ids)
-    #     if self.ancilla_measure_support & erasure_qubits > 0 and noise_dict.get('meas-e', 0) > 0:
-    #         if (ancilla_meas_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(ancilla_meas_erasure):
-    #             circuit.add_depolarize1(ancilla_meas_erasure, p=0.75)
-    #         curr_meas_index += meas_sets_norm[curr_meas_set_index]
-    #         curr_meas_set_index += 1
+        ## Measure all ancillas
+        circuit.add_measurements(self.x_ancilla_ids + self.z_ancilla_ids)
+        if self.ancilla_measure_support & erasure_qubits > 0 and noise_dict.get('meas-e', 0) > 0:
+            if (ancilla_meas_erasure := [meas_sets[curr_meas_set_index][i] for i, m in enumerate(syndrome[curr_meas_index:curr_meas_index + meas_sets_norm[curr_meas_set_index]]) if m]) and any(ancilla_meas_erasure):
+                circuit.add_depolarize1(ancilla_meas_erasure, p=0.75)
+            curr_meas_index += meas_sets_norm[curr_meas_set_index]
+            curr_meas_set_index += 1
 
-    #     circuit.append_to_circ_str(self.cached_strings)
+        circuit.append_to_circ_str(self.cached_strings)
 
-    #     return circuit
+        return circuit
     
-    # def erasure_syndrome_to_stim_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
-    #     """Converts an erasure syndrome into a stabilizer stim circuit.
+    def erasure_syndrome_to_stim_circuit(self, erasure_circuit: circuits.Circuit, syndrome: list, noise_dict: dict = None):
+        """Converts an erasure syndrome into a stabilizer stim circuit.
 
-    #     Args:
-    #         circuit: The erasure circuit
-    #         syndrome: The complete syndrome of the erasure circuit.
+        Args:
+            circuit: The erasure circuit
+            syndrome: The complete syndrome of the erasure circuit.
         
-    #     Returns:
-    #         The stabilizer stim circuit corresponding to the erasure syndrome.
-    #     """
-    #     circuit = self.erasure_syndrome_to_stabilizer_circuit(erasure_circuit, syndrome, noise_dict=noise_dict)
-    #     return circuit.to_stim_circuit()
+        Returns:
+            The stabilizer stim circuit corresponding to the erasure syndrome.
+        """
+        circuit = self.erasure_syndrome_to_stabilizer_circuit(erasure_circuit, syndrome, noise_dict=noise_dict)
+        return circuit.to_stim_circuit()
 
