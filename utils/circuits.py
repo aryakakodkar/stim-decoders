@@ -2,7 +2,7 @@ from typing import List
 import stim
 import time
 
-from ..utils import bitops
+from stimdecoders.utils import bitops
 
 CORRELATED_CNOT_CACHE = {}
 
@@ -86,7 +86,10 @@ class Circuit:
         self._measurements = 0
         self._circ_str = []
 
-        self._hadamard_index = None
+        self.hadamard_cache = {"cached": False,
+                               "strings": [], 
+                               "meas_set": [],
+                               "norm": None}
 
         self._observable_index = 0
 
@@ -216,7 +219,50 @@ class Circuit:
             index: If True, records the index of this Hadamard operation in the circuit string (for later re-use).
         """
         self._circ_str.append(f"H " + " ".join(str(q) for q in qubits))
-        if index: self.hadamard_index = len(self._circ_str) - 1
+
+    def add_noisy_x_ancilla_hadamards(self, pauli_qubits: List[int] = None, erasure_qubits: List[int] = None, p_pauli: float = 0.0, p_erasure: float = 0.0):
+        """Adds Hadamard gates on X-ancillas with Pauli and Erasure errors.
+
+        Args:
+            pauli_qubits: List of qubit indices for Pauli errors.
+            p_pauli: Probability of Pauli error.
+            erasure_qubits: List of qubit indices for Erasure errors.
+            p_erasure: Probability of Erasure error.
+        """
+        if self.hadamard_cache["cached"]:
+            self._circ_str.extend(self.hadamard_cache["strings"])
+            self._measurement_sets.append(self.hadamard_cache["meas_set"])
+            self._measurement_sets_norm.append(self.hadamard_cache["norm"])
+            self._measurements += self.hadamard_cache["norm"]
+            return
+        
+        strs = []
+        strs.append(f"H " + " ".join(str(q) for q in pauli_qubits + erasure_qubits))
+
+        if p_pauli > 0.0 and pauli_qubits:
+            strs.append(f"DEPOLARIZE1({p_pauli}) " + " ".join(str(q) for q in pauli_qubits))
+
+        if p_erasure > 0.0 and erasure_qubits:
+            measure_string = f"HERALDED_ERASE({p_erasure}) "
+            num_qubits_measured = 0
+            for q in erasure_qubits:
+                measure_string += f"{q} "
+                num_qubits_measured += 1
+
+            strs.append(measure_string)
+            self._measurements += num_qubits_measured
+            self._measurement_sets.append(erasure_qubits)
+            self._measurement_sets_norm.append(num_qubits_measured)
+            self._current_measurement_set = []
+
+        self._circ_str.extend(strs)
+        self.hadamard_cache["cached"] = True
+        self.hadamard_cache["strings"] = strs
+        self.hadamard_cache["meas_set"] = erasure_qubits
+        try:
+            self.hadamard_cache["norm"] = num_qubits_measured
+        except:
+            self.hadamard_cache["norm"] = 0
 
     def add_detectors(self, coords: List, parity: bool=False):
         """Adds detectors to the circuit.
