@@ -39,7 +39,7 @@ def split_support_list_fast(support_indices, pauli_mask, erasure_mask):
     return pauli_indices, erasure_indices
 
 def indices_to_mask(indices):
-    """(DEPRECATED) Converts a list of indices to a Python int bitmask.
+    """Converts a list of indices to a Python int bitmask.
     
     Args:
         indices: List of integer indices.

@@ -89,7 +89,7 @@ def _worker_decode_task(task: DecoderTask, timed: bool = False) -> DecoderResult
     syndromes, observable_flips = sampler.sample(task.num_shots, separate_observables=True)
     
     # Build circuits using batch builder for efficiency
-    builder = batch_builder.BatchCircuitBuilder(rsc, erasure_circuit, noise_dict_updated)
+    builder = batch_builder.BatchCircuitBuilder(rsc, erasure_circuit)
     clifford_circuits, circuit_cache = builder.build_batch_with_cache(syndromes)
     
     num_errors = 0

@@ -17,22 +17,26 @@ class BatchCircuitBuilder:
     quickly build circuits for multiple syndromes.
     """
     
-    def __init__(self, rsc: codes.RSC, erasure_circuit: circuits.Circuit, noise_dict: dict):
+    def __init__(self, erasure_circuit: circuits.Circuit):
         """Initialize the batch builder.
         
         Args:
-            rsc: The RSC code object
+            code: The stabilizer code object (WARNING: currently only RSC supported)
             erasure_circuit: The erasure circuit
             noise_dict: Noise parameters dictionary
         """
-        self.rsc = rsc
+        self.code = erasure_circuit.code
+
+        if not isinstance(self.code, codes.RSC):
+            raise TypeError("BatchCircuitBuilder currently only supports RSC codes.")
+        
         self.erasure_circuit = erasure_circuit
-        self.noise_dict = noise_dict
+        self.noise_dict = erasure_circuit.noise_model.noise_dict
         
         # Get measurement set information
-        self.meas_sets, self.meas_sets_norm = erasure_circuit.get_measurement_sets()
-        self.erasure_qubits = noise_dict.get('erasure-qubits', 0)
-        
+        self.meas_sets, self.meas_sets_norms = erasure_circuit.get_measurement_sets()
+        self.erasure_bitmask = erasure_circuit.erasure_bitmask
+
         # Pre-compute circuit template components
         self._precompute_template()
         
@@ -41,28 +45,38 @@ class BatchCircuitBuilder:
         # Store indices for each measurement set segment
         self.meas_indices = []
         curr_idx = 0
-        for norm in self.meas_sets_norm:
+        for norm in self.meas_sets_norms:
             self.meas_indices.append((curr_idx, curr_idx + norm))
             curr_idx += norm
         
         # Pre-compute which stages are active (have erasure errors possible)
         self.active_stages = {
-            'sp': self.rsc.sp_support & self.erasure_qubits > 0 and self.noise_dict.get('sp-e', 0) > 0,
-            'hadamard1': self.rsc.hadamard_support & self.erasure_qubits > 0 and self.noise_dict.get('sqg-e', 0) > 0,
-            'cnots': [(self.rsc.cnot_bitmasks[i] >> self.rsc.eq_diff) & self.erasure_qubits > 0 and 
+            'sp': self.code.sp_support & self.erasure_bitmask > 0 and self.noise_dict.get('sp-e', 0) > 0,
+            'hadamard1': self.code.hadamard_support & self.erasure_bitmask > 0 and self.noise_dict.get('sqg-e', 0) > 0,
+            'cnots': [(self.code.cnot_bitmasks[i] >> self.code.eq_diff) & self.erasure_bitmask > 0 and
                      self.noise_dict.get('tqg-e', 0) > 0 for i in range(4)],
-            'hadamard2': self.rsc.hadamard_support & self.erasure_qubits > 0 and self.noise_dict.get('sqg-e', 0) > 0,
-            'ancilla_meas': self.rsc.ancilla_measure_support & self.erasure_qubits > 0 and 
+            'hadamard2': self.code.hadamard_support & self.erasure_bitmask > 0 and self.noise_dict.get('sqg-e', 0) > 0,
+            'ancilla_meas': self.code.ancilla_measure_support & self.erasure_bitmask > 0 and
                            self.noise_dict.get('meas-e', 0) > 0,
         }
         
-        # Pre-build the base circuit string parts (parts that don't depend on syndrome)
-        self.base_reset = f"R {' '.join(str(q) for q in self.rsc.all_qubit_ids)}"
-        self.base_hadamard = f"H {' '.join(str(q) for q in self.rsc.x_ancilla_ids)}"
-        self.base_cnots = [f"CX {' '.join(f'{g[0]} {g[1]}' for g in gate_check)}" 
-                          for gate_check in self.rsc.gates]
-        self.base_measurements = f"M {' '.join(str(q) for q in self.rsc.x_ancilla_ids + self.rsc.z_ancilla_ids)}"
+        # Pre-compute CNOT support bitmasks (qubits involved in each CNOT round)
+        # These are the original qubit IDs (not shifted by eq_diff)
+        self.cnot_support_bitmasks = [
+            self.code.cnot_bitmasks[i] >> self.code.eq_diff for i in range(4)
+        ]
         
+        # Pre-build the base circuit string parts (parts that don't depend on syndrome)
+        self.base_reset = self.erasure_circuit.cached_strings["sp"]
+        self.base_hadamard = self.erasure_circuit.cached_strings["h"]
+        self.base_cnots = [self.erasure_circuit.cached_strings.get(f"cnot_{i}") if self.erasure_circuit.cached_strings.get(f"cnot_{i}", None) else f"CX {' '.join(f'{g[0]} {g[1]}' for g in gate_check)}"
+                          for i, gate_check in enumerate(self.code.gates)]
+        self.base_measurements = self.erasure_circuit.cached_strings["meas"]
+        self.base_data_measurements = self.erasure_circuit.cached_strings["dmeas"]
+        
+        # Pre-cache Pauli error probability for CNOTs
+        self.p_tqg_pauli = self.noise_dict.get('tqg', 0)
+
     def _extract_erasures_vectorized(self, syndromes: np.ndarray) -> List[Dict[str, List[int]]]:
         """Extract erasure qubit indices from syndromes in a vectorized manner.
         
@@ -101,7 +115,7 @@ class BatchCircuitBuilder:
             for check_num in range(4):
                 if self.active_stages['cnots'][check_num]:
                     start, end = self.meas_indices[stage_idx]
-                    erased = [self.meas_sets[stage_idx][i] - self.rsc.eq_diff 
+                    erased = [self.meas_sets[stage_idx][i] - self.code.eq_diff 
                              for i, m in enumerate(syndrome[start:end]) if m]
                     pattern['cnots'].append(erased if erased else [])
                     stage_idx += 1
@@ -139,10 +153,12 @@ class BatchCircuitBuilder:
         Returns:
             The constructed Circuit object
         """
-        circuit = circuits.Circuit()
+        circuit = circuits.Circuit(code=self.code)
         
         # Reset
         circuit._circ_str.append(self.base_reset)
+        if self.erasure_circuit.cached_strings.get("sp_pauli"):
+            circuit._circ_str.append(self.erasure_circuit.cached_strings["sp_pauli"])
         
         # State preparation errors
         if pattern['sp']:
@@ -150,28 +166,44 @@ class BatchCircuitBuilder:
         
         # First Hadamard
         circuit._circ_str.append(self.base_hadamard)
+        if self.erasure_circuit.cached_strings.get("h_pauli"):
+            circuit._circ_str.append(self.erasure_circuit.cached_strings["h_pauli"])
         if pattern['hadamard1']:
             circuit.add_depolarize1(pattern['hadamard1'], p=0.75)
         
         # CNOTs
         for check_num in range(4):
             circuit._circ_str.append(self.base_cnots[check_num])
+            if self.erasure_circuit.cached_strings.get(f"cnot_{check_num}_pauli"):
+                circuit._circ_str.append(self.erasure_circuit.cached_strings[f"cnot_{check_num}_pauli"])
+            elif (self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num] >> self.code.eq_diff)) > 0 and self.erasure_circuit.noise_model.noise_dict.get("tqg", 0) > 0:
+                circuit.add_depolarize1(bitops.mask_iter_indices(self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num] >> self.code.eq_diff)), p=0.75)
             if pattern['cnots'][check_num]:
                 circuit.add_depolarize1(pattern['cnots'][check_num], p=0.75)
         
         # Second Hadamard
         circuit._circ_str.append(self.base_hadamard)
+        if self.erasure_circuit.cached_strings.get("h_pauli"):
+            circuit._circ_str.append(self.erasure_circuit.cached_strings["h_pauli"])
         if pattern['hadamard2']:
             circuit.add_depolarize1(pattern['hadamard2'], p=0.75)
         
         # Measurements
         circuit._circ_str.append(self.base_measurements)
+        if self.erasure_circuit.cached_strings.get("meas_pauli"):
+            circuit._circ_str.append(self.erasure_circuit.cached_strings["meas_pauli"])
         if pattern['ancilla_meas']:
             circuit.add_depolarize1(pattern['ancilla_meas'], p=0.75)
         
         # Append cached strings (detectors and observables)
-        circuit.append_to_circ_str(self.rsc.cached_strings)
-        
+        circuit._circ_str.append(self.erasure_circuit.detector_cache[0])
+
+        circuit._circ_str.append(self.base_data_measurements)
+
+        circuit.append_to_circ_str(self.erasure_circuit.detector_cache[1 : 1 + self.code.num_ancillas//2])
+
+        circuit._circ_str.append(self.erasure_circuit.cached_strings["obs_0"])
+
         return circuit
     
     def build_batch(self, syndromes: np.ndarray) -> List[stim.Circuit]:
@@ -190,6 +222,7 @@ class BatchCircuitBuilder:
         circuits_list = []
         for pattern in patterns:
             circuit = self._build_circuit_from_pattern(pattern)
+            # print(circuit)
             circuits_list.append(circuit.to_stim_circuit())
         
         return circuits_list

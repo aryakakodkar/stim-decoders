@@ -17,15 +17,19 @@ inherit from the Noise_Model base class and define the appropriate noise paramet
 """
 
 class Noise_Model:
-    def __init__(self, noise_dict: dict, type=None):
-        self.noises = noise_dict
-        self.type = type if type else "generic"
-        self.erasure = noise_dict.get('sqg-e', 0) > 0 or noise_dict.get('tqg-e', 0) > 0 or noise_dict.get('sp-e', 0) > 0
-        self.pauli = noise_dict.get('sqg', 0) > 0 or noise_dict.get('tqg', 0) > 0 or noise_dict.get('sp', 0) > 0
+    def __init__(self, noise_dict: dict = None, model_name="generic", **kwargs):
+        if noise_dict is not None and kwargs:
+            raise TypeError("Provide either noise_dict or keyword arguments, not both.")
+        
+        self.name = model_name
+        self.pauli_bitmask = 0b0
+        self.erasure_bitmask = 0b0
+
+        self.noise_dict = noise_dict if noise_dict is not None else kwargs
+
+    def set_bitmasks(self, pauli_mask: int, erasure_mask: int):
+        self.pauli_bitmask = pauli_mask
+        self.erasure_bitmask = erasure_mask
 
     def __repr__(self):
-        return f"Noise Model: {self.type}\n" + "\n".join([f"{k}: p={v}" for k, v in self.noises.items()])
-
-class Pure_Erasure_Noise_Model(Noise_Model):
-    def __init__(self, p: float):
-        super().__init__({'sqg': p, 'tqg': p, 'sp-e': p}, type="pure-erasure")
+        return f"Noise Model: {self.name}\n" + "\n".join([f"{k}: p={v}" for k, v in self.noise_dict.items()])

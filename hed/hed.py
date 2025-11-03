@@ -1,4 +1,11 @@
-from stimdecoders.utils import codes, circuits, bitops
+"""Heralded erasure decoder functions.
+
+This module contains functions to build heralded erasure circuits,
+sample syndromes, build corresponding Clifford circuits, and decode
+them using PyMatching.
+"""
+
+from stimdecoders.utils import codes, circuits, bitops, noise
 from stimdecoders.hed import batch as batch_builder
 import stim
 import pymatching
@@ -11,51 +18,37 @@ import numpy as np
 #         if element: print(f"[{i}]", end=' ')
 #     print()
 
-def build_heralded_erasure_circuit(code: codes._Stabilizer_Code, noise_dict: dict):
+def build_heralded_erasure_circuit(code: codes.Stabilizer_Code, noise_model: noise.Noise_Model, to_stim: bool = False):
     """Build a heralded erasure circuit for the given stabilizer code and noise parameters.
     
     Args:
         code: The stabilizer code object (currently only RSC supported)
         noise_dict: Noise parameters dictionary
+        to_stim: If True, return stim.Circuit; if False, return circuits.Circuit
     
     Returns:
         The heralded erasure circuit (circuits.Circuit)
     """
-    erasure = code.all_qubit_ids # for now, assume all qubits are erasure qubits. TODO: Static pre-allocation function
+    if not isinstance(code, codes.RSC):
+        raise NotImplementedError("Currently only RSC code is supported for heralded erasure circuits.")
+    
+    circuit = circuits.build_rsc_erasure_circuit(code, noise_model=noise_model)
 
-    erasure_mask = bitops.indices_to_mask(erasure)
-    pauli_mask = 0b0
+    if to_stim:
+        circuit = circuit.to_stim_circuit()
 
-    noise_dict_updated = noise_dict.copy()
-    noise_dict_updated['erasure-qubits'] = erasure_mask
-    noise_dict_updated['pauli-qubits'] = pauli_mask
-
-    circuit = code.build_circuit(noise_dict=noise_dict_updated)
     return circuit
-
-def build_heralded_erasure_stim_circuit(code: codes._Stabilizer_Code, noise_dict: dict):
-    """Build a heralded erasure stim circuit for the given stabilizer code distance and noise parameters.
-
-    Args:
-        code: The stabilizer code object (currently only RSC supported)
-        noise_dict: Noise parameters dictionary
-
-    Returns:
-        The heralded erasure stim circuit (stim.Circuit)
-    """
-    circuit = build_heralded_erasure_circuit(code, noise_dict)
-    stim_circuit = circuit.to_stim_circuit()
-    return stim_circuit
 
 def sample_erasure_circuit(circuit: stim.Circuit | circuits.Circuit, num_shots: int):
     """Sample the given erasure circuit for a number of shots.
-    
+
     Args:
         circuit: The heralded erasure circuit (stim.Circuit or circuits.Circuit)
         num_shots: Number of shots to sample
-                     
+
     Returns:
-        syndromes: Sampled syndromes (np.ndarray)"""
+        syndromes: Sampled syndromes (np.ndarray)
+    """
     if isinstance(circuit, circuits.Circuit):
         circuit = circuit.to_stim_circuit()
 
@@ -63,7 +56,7 @@ def sample_erasure_circuit(circuit: stim.Circuit | circuits.Circuit, num_shots: 
     syndromes, observable_flips = sampler.sample(num_shots, separate_observables=True)
     return syndromes, observable_flips
 
-def build_clifford_circuit(code: codes._Stabilizer_Code, erasure_circuit: circuits.Circuit, syndrome: np.ndarray, noise_dict: dict):
+def build_clifford_circuit(code: codes.Stabilizer_Code, erasure_circuit: circuits.Circuit, syndrome: np.ndarray, noise_dict: dict):
     """(DEPRECATED) Build the Clifford circuit corresponding to the given erasure circuit and syndrome.
     
     Args:
@@ -79,7 +72,7 @@ def build_clifford_circuit(code: codes._Stabilizer_Code, erasure_circuit: circui
     return clifford_circuit
 
 # TODO: noise_dict should be part of erasure circuit. Should not have to pass it again here.
-def build_clifford_stim_circuit(code: codes._Stabilizer_Code, erasure_circuit: circuits.Circuit, syndrome: np.ndarray, noise_dict: dict):
+def build_clifford_stim_circuit(code: codes.Stabilizer_Code, erasure_circuit: circuits.Circuit, syndrome: np.ndarray, noise_dict: dict):
     """(DEPRECATED) Build the Clifford stim circuit corresponding to the given erasure circuit and syndrome.
 
     Args:
