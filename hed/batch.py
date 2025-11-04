@@ -197,11 +197,8 @@ class BatchCircuitBuilder:
         
         # Append cached strings (detectors and observables)
         circuit._circ_str.append(self.erasure_circuit.detector_cache[0])
-
         circuit._circ_str.append(self.base_data_measurements)
-
         circuit.append_to_circ_str(self.erasure_circuit.detector_cache[1 : 1 + self.code.num_ancillas//2])
-
         circuit._circ_str.append(self.erasure_circuit.cached_strings["obs_0"])
 
         return circuit
@@ -258,12 +255,11 @@ class BatchCircuitBuilder:
         return circuits_list, circuit_cache
 
 
-def batch_build_clifford_circuits(rsc: codes.RSC, 
-                                  erasure_circuit: circuits.Circuit,
+def batch_build_clifford_circuits(erasure_circuit: circuits.Circuit,
                                   syndromes: np.ndarray,
-                                  noise_dict: dict,
                                   use_cache: bool = True,
                                   circuit_cache: Dict[bytes, stim.Circuit] = None) -> Tuple[List[stim.Circuit], Dict[bytes, stim.Circuit]]:
+    
     """Build Clifford circuits for multiple syndromes in batch mode.
     
     This is the main entry point for batch circuit building. It creates a
@@ -280,7 +276,7 @@ def batch_build_clifford_circuits(rsc: codes.RSC,
     Returns:
         Tuple of (list of circuits, cache dictionary)
     """
-    builder = BatchCircuitBuilder(rsc, erasure_circuit, noise_dict)
+    builder = BatchCircuitBuilder(erasure_circuit)
     
     if use_cache:
         return builder.build_batch_with_cache(syndromes, circuit_cache)

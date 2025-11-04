@@ -390,9 +390,3 @@ def build_rsc_erasure_circuit(rsc: codes.RSC, noise_model: noise.Noise_Model, er
     circuit.add_observable([rsc.num_qubits - rsc.measurement_indices[qubit_id] for qubit_id in rsc.observable], cache=True)
 
     return circuit
-
-def build_rsc_clifford_from_syndrome(erasure_circuit: Circuit, 
-                                     syndrome: List[int], 
-                                     return_data: bool = False):
-    
-    pass
