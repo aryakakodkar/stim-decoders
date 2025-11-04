@@ -4,7 +4,7 @@ This module provides Sinter-like parallel execution across multiple noise parame
 and automatically distributes work across available CPU cores.
 """
 
-from stimdecoders.utils import codes, circuits, bitops
+from stimdecoders.utils import codes, circuits, bitops, noise
 from stimdecoders.hed import hed, batch as batch_builder
 import stim
 import pymatching
@@ -71,17 +71,9 @@ def _worker_decode_task(task: DecoderTask, timed: bool = False) -> DecoderResult
     
     # Build code and circuit for this task
     rsc = codes.RSC(distance=task.distance)
-    # erasure_circuit = hed.build_heralded_erasure_circuit(rsc, task.noise_params)
     
-    # Prepare noise dict with required keys
-    erasure_mask = bitops.indices_to_mask(rsc.all_qubit_ids) # assume pure erasure noise. TODO: make configurable
-    pauli_mask = 0b0
-    
-    noise_dict_updated = task.noise_params.copy()
-    noise_dict_updated['erasure-qubits'] = erasure_mask
-    noise_dict_updated['pauli-qubits'] = pauli_mask
-
-    erasure_circuit = rsc.build_circuit(noise_dict=noise_dict_updated)
+    noise_model = noise.Noise_Model(task.noise_params)
+    erasure_circuit = circuits.build_rsc_erasure_circuit(rsc, noise_model)
     
     # Sample syndromes
     erasure_stim_circuit = erasure_circuit.to_stim_circuit()
@@ -89,7 +81,7 @@ def _worker_decode_task(task: DecoderTask, timed: bool = False) -> DecoderResult
     syndromes, observable_flips = sampler.sample(task.num_shots, separate_observables=True)
     
     # Build circuits using batch builder for efficiency
-    builder = batch_builder.BatchCircuitBuilder(rsc, erasure_circuit)
+    builder = batch_builder.BatchCircuitBuilder(erasure_circuit)
     clifford_circuits, circuit_cache = builder.build_batch_with_cache(syndromes)
     
     num_errors = 0

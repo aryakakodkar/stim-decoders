@@ -257,13 +257,14 @@ class Circuit:
         """
         if not parity:
             self._circ_str.append("\n".join([f"DETECTOR rec[-{coord}]" for coord in coords]))
+            if cache:
+                self.detector_cache.append(self._circ_str[-1])
         if parity:
             for coord in coords:
                 self._circ_str.append(f"DETECTOR " + " ".join(f"rec[-{i}]" for i in coord))
 
-        if cache:
-            print(self._circ_str[-1])
-            self._detector_cache.append(self._circ_str[-1])
+                if cache:
+                    self.detector_cache.append(self._circ_str[-1])  
 
     def detect_all_measurements(self):
         """Adds detectors for all measurements in the circuit, first-in first-out."""
