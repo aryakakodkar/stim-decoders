@@ -176,8 +176,8 @@ class BatchCircuitBuilder:
             circuit._circ_str.append(self.base_cnots[check_num])
             if self.erasure_circuit.cached_strings.get(f"cnot_{check_num}_pauli"):
                 circuit._circ_str.append(self.erasure_circuit.cached_strings[f"cnot_{check_num}_pauli"])
-            elif (self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num] >> self.code.eq_diff)) > 0 and self.erasure_circuit.noise_model.noise_dict.get("tqg", 0) > 0:
-                circuit.add_depolarize1(bitops.mask_iter_indices(self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num] >> self.code.eq_diff)), p=0.75)
+            elif (self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num])) > 0 and self.erasure_circuit.noise_model.noise_dict.get("tqg", 0) > 0:
+                circuit.add_depolarize1(bitops.mask_iter_indices(self.erasure_circuit.pauli_bitmask & (self.cnot_support_bitmasks[check_num])), p=0.75)
             if pattern['cnots'][check_num]:
                 circuit.add_depolarize1(pattern['cnots'][check_num], p=0.75)
         
